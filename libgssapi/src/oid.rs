@@ -2,7 +2,9 @@
 /// horrible. This module is horrible. I'm so pleased to share my
 /// horror with you.
 use crate::error::{Error, MajorFlags};
+use crate::util::{Buf, BufRef};
 use libgssapi_sys::{gss_OID, gss_OID_desc, gss_OID_set, gss_OID_set_desc, gss_add_oid_set_member, gss_create_empty_oid_set, gss_inquire_mech_for_saslname, gss_inquire_saslname_for_mech, gss_oid_to_str, gss_release_oid_set, gss_str_to_oid, gss_test_oid_set_member, OM_uint32, GSS_S_COMPLETE};
+use std::convert::TryFrom;
 use std::{
     self,
     cmp::{Eq, Ord, Ordering, PartialEq, PartialOrd},
@@ -11,12 +13,10 @@ use std::{
     hash::{Hash, Hasher},
     iter::{ExactSizeIterator, FromIterator, IntoIterator, Iterator},
     ops::{Deref, Index},
-    ptr, slice,
-    os::raw::c_int,
+    os::raw::c_int, ptr,
+    slice,
 };
-use std::convert::TryFrom;
-use crate::name::Name;
-use crate::util::{Buf, BufRef};
+
 
 // CR estokes: do I need the attributes from rfc 5587? There are loads of them.
 pub static GSS_NT_USER_NAME: Oid =
