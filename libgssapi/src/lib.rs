@@ -43,7 +43,7 @@
 //!     let server_cred = Cred::acquire(
 //!         Some(&cname), None, CredUsage::Accept, Some(desired_mechs)
 //!     )?;
-//!     Ok((ServerCtx::new(server_cred), cname))
+//!     Ok((ServerCtx::new(Some(server_cred)), cname))
 //! }
 //! 
 //! fn setup_client_ctx(
