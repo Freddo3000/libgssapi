@@ -2,7 +2,7 @@
 /// horrible. This module is horrible. I'm so pleased to share my
 /// horror with you.
 use crate::error::{Error, MajorFlags};
-use libgssapi_sys::{gss_OID, gss_OID_desc, gss_OID_set, gss_OID_set_desc, gss_add_oid_set_member, gss_create_empty_oid_set, gss_inquire_mech_for_saslname, gss_inquire_saslname_for_mech, gss_release_oid_set, gss_test_oid_set_member, OM_uint32, GSS_S_COMPLETE};
+use libgssapi_sys::{gss_OID, gss_OID_desc, gss_OID_set, gss_OID_set_desc, gss_add_oid_set_member, gss_create_empty_oid_set, gss_inquire_mech_for_saslname, gss_inquire_saslname_for_mech, gss_oid_to_str, gss_release_oid_set, gss_str_to_oid, gss_test_oid_set_member, OM_uint32, GSS_S_COMPLETE};
 use std::{
     self,
     cmp::{Eq, Ord, Ordering, PartialEq, PartialOrd},
@@ -14,6 +14,8 @@ use std::{
     ptr, slice,
     os::raw::c_int,
 };
+use std::convert::TryFrom;
+use crate::name::Name;
 use crate::util::{Buf, BufRef};
 
 // CR estokes: do I need the attributes from rfc 5587? There are loads of them.
@@ -189,6 +191,49 @@ impl Oid {
 
     pub(crate) unsafe fn to_c(&self) -> gss_OID {
         self as *const Oid as gss_OID
+    }
+
+    /// Gets an OID from a buffer
+    pub fn from_buf(buf: &mut Buf) -> Result<&Oid, Error> {
+        let mut minor = GSS_S_COMPLETE;
+        let mut oid = NO_OID;
+        unsafe {
+            let major = gss_str_to_oid(
+                &mut minor,
+                buf.to_c(),
+                &mut oid,
+            );
+
+            if major == GSS_S_COMPLETE {
+                Ok(Oid::from_c(oid))
+            } else {
+                Err(Error {
+                    major: MajorFlags::from_bits_retain(major),
+                    minor,
+                })
+            }
+        }
+    }
+
+    /// Converts an OID to buffer
+    pub fn to_buf(&self) -> Result<Buf, Error> {
+        let mut minor = GSS_S_COMPLETE;
+        let mut buf = Buf::empty();
+        let major = unsafe {
+            gss_oid_to_str(
+                &mut minor,
+                self.to_c(),
+                buf.to_c(),
+            )
+        };
+        if major == GSS_S_COMPLETE {
+            Ok(buf)
+        } else {
+            Err(Error {
+                major: MajorFlags::from_bits_retain(major),
+                minor,
+            })
+        }
     }
 
     /// If you need to use an OID I didn't define, then you must
@@ -449,5 +494,12 @@ mod tests {
         eprintln!("oid: {}", oid);
         let e = Oid::from_saslname("TEST".as_ref()).expect_err("Received unexpected SASL mechanism");
         eprintln!("err: {}", e);
+    }
+
+    #[test]
+    fn oid_to_str() {
+        let mut b = GSS_MECH_KRB5.to_buf().expect("Failed to convert GSS_MECH_KRB5 to buf");
+        eprintln!("GSS_MECH_KRB5: {}", String::from_utf8_lossy(&b));
+        let o = Oid::from_buf(&mut b).expect("Failed to create OID from buf");
     }
 }
