@@ -2,11 +2,7 @@
 /// horrible. This module is horrible. I'm so pleased to share my
 /// horror with you.
 use crate::error::{Error, MajorFlags};
-use libgssapi_sys::{
-    gss_OID, gss_OID_desc, gss_OID_set, gss_OID_set_desc, gss_add_oid_set_member,
-    gss_create_empty_oid_set, gss_release_oid_set, gss_test_oid_set_member, OM_uint32,
-    GSS_S_COMPLETE,
-};
+use libgssapi_sys::{gss_OID, gss_OID_desc, gss_OID_set, gss_OID_set_desc, gss_add_oid_set_member, gss_create_empty_oid_set, gss_inquire_mech_for_saslname, gss_inquire_saslname_for_mech, gss_release_oid_set, gss_test_oid_set_member, OM_uint32, GSS_S_COMPLETE};
 use std::{
     self,
     cmp::{Eq, Ord, Ordering, PartialEq, PartialOrd},
@@ -18,6 +14,7 @@ use std::{
     ptr, slice,
     os::raw::c_int,
 };
+use crate::util::{Buf, BufRef};
 
 // CR estokes: do I need the attributes from rfc 5587? There are loads of them.
 pub static GSS_NT_USER_NAME: Oid =
@@ -205,6 +202,71 @@ impl Oid {
         let elements = ber.as_ptr() as *mut std::ffi::c_void;
         Oid(gss_OID_desc { length, elements })
     }
+
+    /// Returns the Simple Authentication and Security Layer (SASL) protocol name for a given 
+    /// GSS-API mechanism. (RFC 5801)
+    ///
+    /// # Examples
+    /// ```
+    /// use libgssapi::oid::GSS_MECH_KRB5;
+    /// let (sasl_mech_name, mech_name, mech_description) = GSS_MECH_KRB5.saslname().expect("Failed to get SASL name for mech");
+    /// eprintln!("sasl_mech_name: {}", String::from_utf8_lossy(&sasl_mech_name));
+    /// eprintln!("mech_name: {}", String::from_utf8_lossy(&mech_name));
+    /// eprintln!("mech_description: {}", String::from_utf8_lossy(&mech_description));
+    /// ```
+    pub fn saslname(&self) -> Result<(Buf, Buf, Buf), Error> {
+        let mut minor = GSS_S_COMPLETE;
+        let mut sasl_mech_name = Buf::empty();
+        let mut mech_name = Buf::empty();
+        let mut mech_description = Buf::empty();
+        let major = unsafe {
+            gss_inquire_saslname_for_mech(
+                &mut minor,
+                self.to_c(),
+                sasl_mech_name.to_c(),
+                mech_name.to_c(),
+                mech_description.to_c(),
+            )
+        };
+        if major == GSS_S_COMPLETE {
+            Ok((sasl_mech_name, mech_name, mech_description))
+        } else {
+            Err(Error {
+                major: MajorFlags::from_bits_retain(major),
+                minor,
+            })
+        }
+    }
+
+    /// Returns the GSS-API mechanism identifier for a given Simple Authentication and Security 
+    /// Layer (SASL) protocol name.
+    /// 
+    /// # Examples
+    /// ```
+    /// use libgssapi::oid::Oid;
+    /// let oid = Oid::from_saslname("GS2-KRB5".as_ref())
+    ///             .expect("Failed to create OID from SASL name");
+    /// ```
+    pub fn from_saslname(sasl: &[u8]) -> Result<Oid, Error> {
+        let mut minor = GSS_S_COMPLETE;
+        let oid: *mut gss_OID = &mut NO_OID;
+        unsafe {
+            let major = gss_inquire_mech_for_saslname(
+                &mut minor,
+                BufRef::from(sasl).to_c(),
+                oid,
+            );
+
+            if major == GSS_S_COMPLETE {
+                Ok(*Oid::from_c(*oid))
+            } else {
+                Err(Error {
+                    major: MajorFlags::from_bits_retain(major),
+                    minor,
+                })
+            }
+        }
+    }
 }
 
 pub struct OidSetIter<'a> {
@@ -365,5 +427,27 @@ impl OidSet {
                 minor,
             })
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::oid::{Oid, GSS_MECH_KRB5, GSS_NT_USER_NAME};
+
+    #[test]
+    fn oid_sasl() {
+        let (sasl_mech_name, mech_name, mech_description) = GSS_MECH_KRB5.saslname().expect("Failed to get SASL name for mech");
+        eprintln!("sasl_mech_name: {}", String::from_utf8_lossy(&sasl_mech_name));
+        eprintln!("mech_name: {}", String::from_utf8_lossy(&mech_name));
+        eprintln!("mech_description: {}", String::from_utf8_lossy(&mech_description));
+        GSS_NT_USER_NAME.saslname().expect_err("Received unexpected SASL mechanism");
+    }
+
+    #[test]
+    fn oid_sasl_from_string() {
+        let oid = Oid::from_saslname("GS2-KRB5".as_ref()).expect("Failed to create OID from SASL name");
+        eprintln!("oid: {}", oid);
+        let e = Oid::from_saslname("TEST".as_ref()).expect_err("Received unexpected SASL mechanism");
+        eprintln!("err: {}", e);
     }
 }
