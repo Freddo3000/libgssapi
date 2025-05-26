@@ -3,16 +3,13 @@ use crate::{
     util::{Buf, BufRef},
     oid::Oid,
 };
-use libgssapi_sys::{
-    gss_OID, gss_OID_desc, gss_canonicalize_name, gss_display_name, gss_duplicate_name,
-    gss_import_name, gss_name_struct, gss_name_t, gss_release_name, gss_export_name,
-    OM_uint32, GSS_S_COMPLETE,
-};
+use libgssapi_sys::{gss_OID, gss_OID_desc, gss_canonicalize_name, gss_display_name, gss_duplicate_name, gss_import_name, gss_name_struct, gss_name_t, gss_release_name, gss_export_name, OM_uint32, GSS_S_COMPLETE, gss_compare_name};
 #[cfg(feature = "localname")]
 use libgssapi_sys::gss_localname;
 #[cfg(feature = "localname")]
 use crate::oid::NO_OID;
 use std::{ptr, fmt};
+use std::os::raw::c_int;
 
 pub struct Name(gss_name_t);
 
@@ -50,6 +47,22 @@ impl fmt::Debug for Name {
 impl fmt::Display for Name {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
         fmt::Debug::fmt(self, f)
+    }
+}
+
+impl PartialEq for Name {
+    fn eq(&self, other: &Self) -> bool {
+        let mut minor = GSS_S_COMPLETE;
+        let mut eq = 0;
+        let _major = unsafe {
+            gss_compare_name(
+                &mut minor as *mut OM_uint32,
+                self.0,
+                other.0,
+                &mut eq as *mut c_int
+            )
+        };
+        eq == 1
     }
 }
 
@@ -210,5 +223,19 @@ impl Name {
                 minor
             })
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    
+    #[test]
+    fn check_eq() {
+        let n1 = Name::new("test@LOCAL.DOMAIN".as_ref(), None).unwrap();
+        let n2 = Name::new("test@LOCAL.DOMAIN".as_ref(), None).unwrap();
+        assert_eq!(n1, n2);
+        let n3 = Name::new("test2@LOCAL.DOMAIN".as_ref(), None).unwrap();
+        assert_ne!(n1, n3);
     }
 }
