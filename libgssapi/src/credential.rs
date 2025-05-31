@@ -19,6 +19,7 @@ use libgssapi_sys::{
 use std::ffi::{CStr, CString};
 use std::{fmt, ptr, time::Duration};
 use std::ffi::c_int;
+use std::sync::Arc;
 use crate::oid::{Oid, NO_OID};
 
 pub(crate) const NO_CRED: gss_cred_id_t = ptr::null_mut();
@@ -80,9 +81,16 @@ impl CredUsage {
 }
 
 /// gssapi credentials.
-pub struct Cred(gss_cred_id_t);
+#[derive(Clone)]
+pub struct Cred(Arc<InnerCred>);
+impl From<gss_cred_id_t> for Cred {
+    fn from(id: gss_cred_id_t) -> Self {
+        Cred(Arc::new(InnerCred(id)))
+    }
+}
+struct InnerCred(gss_cred_id_t);
 
-impl Drop for Cred {
+impl Drop for InnerCred {
     fn drop(&mut self) {
         if !self.0.is_null() {
             let mut minor = GSS_S_COMPLETE;
@@ -96,8 +104,8 @@ impl Drop for Cred {
     }
 }
 
-unsafe impl Send for Cred {}
-unsafe impl Sync for Cred {}
+unsafe impl Send for InnerCred {}
+unsafe impl Sync for InnerCred {}
 
 impl fmt::Debug for Cred {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
@@ -144,7 +152,7 @@ impl Cred {
             )
         };
         if major == GSS_S_COMPLETE {
-            Ok(Cred(cred))
+            Ok(Cred::from(cred))
         } else {
             Err(Error {
                 major: MajorFlags::from_bits_retain(major),
@@ -186,7 +194,7 @@ impl Cred {
             )
         };
         if major == GSS_S_COMPLETE {
-            Ok(Cred(cred))
+            Ok(Cred::from(cred))
         } else {
             Err(Error {
                 major: MajorFlags::from_bits_retain(major),
@@ -226,7 +234,7 @@ impl Cred {
             )
         };
         if major == GSS_S_COMPLETE {
-            Ok(Cred(cred))
+            Ok(Cred::from(cred))
         } else {
             Err(Error {
                 major: MajorFlags::from_bits_retain(major),
@@ -321,18 +329,18 @@ impl Cred {
     }
 
     pub(crate) unsafe fn from_c(cred: gss_cred_id_t) -> Cred {
-        Cred(cred)
+        Cred::from(cred)
     }
 
     pub(crate) unsafe fn to_c(&self) -> gss_cred_id_t {
-        self.0
+        self.0.0
     }
 
     unsafe fn info_c(&self, mut ifo: CredInfoC) -> Result<CredInfoC, Error> {
         let mut minor: u32 = 0;
         let major = gss_inquire_cred(
             &mut minor as *mut OM_uint32,
-            self.0,
+            self.0.0,
             match ifo.name {
                 None => ptr::null_mut::<gss_name_t>(),
                 Some(ref mut n) => n as *mut gss_name_t,
@@ -405,7 +413,7 @@ impl Cred {
             let mut minor: u32 = 0;
             let major = gss_inquire_cred_by_oid(
                 &mut minor as *mut OM_uint32,
-                self.0,
+                self.0.0,
                 GSS_KRB5_GET_CRED_IMPERSONATOR.to_c(),
                 out.to_c(),
             );
